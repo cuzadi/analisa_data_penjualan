@@ -1,0 +1,130 @@
+import sqlite3
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# Membuat koneksi ke database SQL
+akses_file_db = r'D:\Becoming Data Analyst\Pacmann\Tugas-2 Project\SQL and Data Wrangling\Olah Data\olist.db' # sesuaikan dengan lokasi file database Anda
+koneksi_db = sqlite3.connect(akses_file_db)
+
+# Membaca data dari database ke dalam DataFrame pandas
+perintah_query = """
+    SELECT
+        tabel_1.product_id AS "Kode Produk",
+        tabel_3.product_category_name_english AS "Kategori Produk",
+        tabel_2.product_weight_g AS "Gramasi Produk (gr)",
+        tabel_4.order_delivered_carrier_date AS "Tanggal Pembelian",
+        tabel_1.order_item_id AS "Penjualan",
+        tabel_5.review_score AS "Skor Review"
+    FROM olist_order_items_dataset tabel_1
+    JOIN olist_products_dataset tabel_2 ON tabel_1.product_id = tabel_2.product_id
+    JOIN product_category_name_translation tabel_3 ON tabel_2.product_category_name = tabel_3.product_category_name
+    JOIN olist_order_dataset tabel_4 ON tabel_1.order_id = tabel_4.order_id
+    JOIN olist_order_reviews_dataset tabel_5 ON tabel_1.order_id = tabel_5.order_id
+    WHERE tabel_4.order_delivered_carrier_date IS NOT NULL
+"""
+
+df = pd.read_sql_query(perintah_query, koneksi_db)
+
+# Menghitung total penjualan sepanjang periode
+hasil_cumm_tot = df.groupby(['Kategori Produk', 'Gramasi Produk (gr)'])['Penjualan'].sum().reset_index()
+hasil_cumm_tot = hasil_cumm_tot.sort_values(by='Penjualan', ascending=False)
+print(hasil_cumm_tot)
+
+# Mengidentifikasi 20 produk teratas berdasarkan total penjualan
+top_Sales = hasil_cumm_tot.nlargest(20, 'Penjualan')
+print(top_Sales[['Kategori Produk', 'Gramasi Produk (gr)', 'Penjualan']])
+subset_top_Sales = top_Sales[['Kategori Produk','Gramasi Produk (gr)']]
+
+# Menghitung frekuensi kemunculan dalam Top 20
+frekuensi = top_Sales['Kategori Produk'].value_counts()
+print("Frekuensi Setiap Kategori Produk pada Top 20 Sales")
+print(frekuensi)
+
+df_cek_skor = df[(df['Skor Review'] >= 4) & (df['Penjualan'] >= 1)]
+
+# Menghitung total Skor Review
+hasil_Review_tot = df_cek_skor.groupby(['Kategori Produk','Gramasi Produk (gr)']) \
+                    ['Skor Review'].sum().reset_index()
+
+# Mengidentifikasi Top 60 Review Tertinggi
+top_Review = hasil_Review_tot.nlargest(60, 'Skor Review')
+print(top_Review[['Kategori Produk', 'Gramasi Produk (gr)', 'Skor Review']])
+
+# Menghitung frekuensi kemunculan dalam Top 60
+frekuensi2 = top_Review['Kategori Produk'].value_counts()
+print("Frekuensi Setiap Kategori Produk pada Top 60 Review")
+print(frekuensi2)
+
+# Menyusun Top Sales berdasarkan Skor Review
+top_of_thetop = pd.merge(top_Review,
+                        top_Sales[['Kategori Produk','Gramasi Produk (gr)', 'Penjualan']],
+                        on=['Kategori Produk','Gramasi Produk (gr)'],
+                        how='inner')
+print(top_of_thetop)
+
+# Data untuk Grafik Batang
+kategori_gramasi = top_of_thetop[['Kategori Produk', 'Gramasi Produk (gr)']]
+skor_review = top_of_thetop['Skor Review']
+penjualan = top_of_thetop['Penjualan']
+
+# Buat objek fig dan ax untuk plot
+fig, ax1 = plt.subplots(figsize=(10, 6))
+
+# Plot pertama (skor review)
+ax1.bar(kategori_gramasi.index, skor_review, alpha=0.7, color='b', label='Skor Review')
+ax1.set_xlabel('Kategori Produk dan Gramasi')
+ax1.set_ylabel('Skor Review', color='b')
+ax1.tick_params(axis='y', labelcolor='b')
+ax1.set_xticks(kategori_gramasi.index)
+ax1.set_xticklabels(['-'.join(map(str, kat_gram)) for kat_gram in kategori_gramasi.values], rotation=45, ha='right')
+ax1.legend(loc='upper left')
+
+# Buat sumbu kedua (penjualan)
+ax2 = ax1.twinx()
+ax2.bar(kategori_gramasi.index, penjualan, alpha=0.7, color='r', label='Penjualan')
+ax2.set_ylabel('Penjualan', color='r')
+ax2.tick_params(axis='y', labelcolor='r')
+ax2.legend(loc='upper right')
+
+# Judul dan tampilan grafik
+plt.title('Grafik Batang Skor Review dan Penjualan')
+plt.tight_layout()
+
+# Tampilkan plot
+plt.show()
+
+# Menyiapkan data utk time series
+# Mengubah kolom 'Tanggal Transaksi' ke dalam format tanggal
+df['Tanggal Pembelian'] = pd.to_datetime(df['Tanggal Pembelian'])
+
+# Membuat periode Kolom Bulan Tahun
+df['Bulan Tahun'] = df['Tanggal Pembelian'].dt.to_period('M')
+
+# Menghitung total penjualan setiap Bulan Tahun
+hasil_cumm_period = df.groupby(['Kategori Produk', 'Gramasi Produk (gr)', 'Bulan Tahun'])['Penjualan'].sum().reset_index()
+
+# Mengambil Data Penjualan Bulan Tahun utk Produk Top 20 Sales
+hasil = hasil_cumm_period.merge(top_Sales, on=["Kategori Produk", "Gramasi Produk (gr)"], how="inner")
+
+# Membuat plot time series terpisah untuk setiap produk
+for i, row in subset_top_Sales.iterrows():
+    kategori_produk = row['Kategori Produk']
+    gramasi_produk = row['Gramasi Produk (gr)']
+
+    data_produk = hasil[(hasil['Kategori Produk'] == kategori_produk) & (hasil['Gramasi Produk (gr)'] == gramasi_produk)]
+
+    # Konversi 'Bulan Tahun' ke tipe data datetime64
+    data_produk['Bulan Tahun'] = data_produk['Bulan Tahun'].dt.to_timestamp()
+
+    plt.figure(figsize=(8, 4))
+    plt.plot(data_produk['Bulan Tahun'], data_produk['Penjualan_x'])
+    plt.title(f'Grafik Time Series Penjualan {kategori_produk} - {gramasi_produk}')
+    plt.xlabel('Bulan Tahun')
+    plt.ylabel('Penjualan Bulanan')
+    plt.xticks(rotation=45)
+    plt.grid(True)
+    plt.tight_layout()
+
+    plt.show()
+
+koneksi_db.close()
