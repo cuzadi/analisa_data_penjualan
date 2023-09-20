@@ -1,0 +1,17 @@
+import sqlite3
+import pandas as pd
+
+# Langkah 1: Buka koneksi ke database SQLite
+akses_file_db = r'D:\olist.db' # sesuaikan dengan lokasi database Anda
+koneksi_db = sqlite3.connect(akses_file_db)
+
+# Membaca tabel dari database
+df = pd.read_sql_query("SELECT * FROM olist_order_items_dataset", koneksi_db)
+
+# Mengecek baris yang bukan angka pada kolom order_item_id
+baris_non_angka = df[pd.to_numeric(df['order_item_id'], errors='coerce').isna()]
+
+# Menampilkan baris yang bukan angka
+print(baris_non_angka)
+
+koneksi_db.close()
